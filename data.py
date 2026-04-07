@@ -47,13 +47,13 @@ class TorqueForceDataset(Dataset):
         
         # Load torque and power data from input_path
         torque_data = pd.read_csv(torque_file)
-        # Columns: time, Torque, Power
+        # Select columns Torque and Power
+        torque_data = torque_data[['Torque', 'Power']]
         
         # Load force data from output_path
         force_data = pd.read_csv(force_file)
-        # Columns: [ignore col 0, 1], Fy, Fz, Fx - use columns 2,3,4
-        force_data = force_data.iloc[:, 2:5]  # Select columns 2, 3, 4 (Fy, Fz, Fx)
-        force_data.columns = ['Fy', 'Fz', 'Fx']
+        # Select columns Fy, Fz, Fx (columns 1, 2, 3)
+        force_data = force_data[['Fy', 'Fz', 'Fx']]
         
         # Align by length (use minimum)
         min_len = min(len(torque_data), len(force_data))
@@ -61,16 +61,16 @@ class TorqueForceDataset(Dataset):
         force_data = force_data.iloc[:min_len].reset_index(drop=True)
         
         # Combine into single dataframe
-        df = pd.concat([torque_data[['Torque']], force_data[['Fy', 'Fz', 'Fx']]], axis=1)
+        df = pd.concat([torque_data[['Torque', 'Power']], force_data[['Fy', 'Fz', 'Fx']]], axis=1)
         
         # drop rows with zero values
         df = df[(df['Torque'] != 0) & (df['Fx'] != 0) & (df['Fy'] != 0) & (df['Fz'] != 0)]
         
         # normalize the data using the global mean and std
-        for column in ['Torque', 'Fx', 'Fy', 'Fz']:
+        for column in ['Torque', 'Power', 'Fx', 'Fy', 'Fz']:
             df[column] = (df[column] - self.global_mean_std.loc[column, 'global_mean']) / self.global_mean_std.loc[column, 'global_std']
         
-        rolling_mean = df[['Torque', 'Fx', 'Fy', 'Fz']].rolling(window=self.window_size, min_periods=self.window_size, step=int(self.step_size)).mean()
+        rolling_mean = df[['Torque', 'Power', 'Fx', 'Fy', 'Fz']].rolling(window=self.window_size, min_periods=self.window_size, step=int(self.step_size)).mean()
         rolling_mean = rolling_mean.dropna().reset_index(drop=True)
 
         # Build vector from metadata: [Vc, ap, fn, D_or_L, HT_or_NHT, hardness]
@@ -90,7 +90,7 @@ class TorqueForceDataset(Dataset):
         ], dtype=np.float32)
 
         return {
-            "x": torch.from_numpy(rolling_mean[['Torque']].values).float(),       # (1,W)
+            "x": torch.from_numpy(rolling_mean[['Torque', 'Power']].values).float(),       # (2,W)
             "y": torch.from_numpy(rolling_mean[['Fx', 'Fy', 'Fz']].values).float(),            # (3,W)
             "v": torch.from_numpy(vector).float(),                                      # (6,)
         }
@@ -156,12 +156,6 @@ class TorqueForceDataModule(pl.LightningDataModule):
 if __name__ == "__main__":
     data_root_dir = "data_root"
     data_module = TorqueForceDataModule(data_root_dir)
-    data_module.setup()
-    dataset = data_module.train_dataset
-    print(f"Dataset size: {len(dataset)}")
-    sample = dataset[0]
-    print(f"x shape: {sample['x'].shape}, y shape: {sample['y'].shape}, v shape: {sample['v'].shape}")
-    data_module = TorqueForceDataModule(signals_dir, vector_dir, global_mean_std_file)
     data_module.setup()
     dataset = data_module.train_dataset
     print(f"Dataset size: {len(dataset)}")
