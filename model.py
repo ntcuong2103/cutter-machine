@@ -4,9 +4,9 @@ class LSTM_With_ControlParam(nn.Module):
     def __init__(self, input_size=1, control_param_size=6, hidden_size=64, num_layers=1, output_size=3):
         super(LSTM_With_ControlParam, self).__init__()
 
-        self.lstm1 = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True)
+        # self.lstm1 = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True)
         # có thể thay bằng 1 lớp linear
-        # self.linear1 = nn.Linear(input_size, hidden_size * 2) # W (1 x hidden_size*2)
+        self.linear1 = nn.Linear(input_size, hidden_size * 2) # W (1 x hidden_size*2)
         
         # embedding: two linear layers with ReLU activation in between
         self.embedding = nn.Sequential(
@@ -23,7 +23,8 @@ class LSTM_With_ControlParam(nn.Module):
 
     def forward(self, x, control_param):
         # x: (B, T, 1), control_param: (B, 6)
-        lstm_out, _ = self.lstm1(x)  # lstm_out: (B, T, hidden_size * 2)
+        # lstm_out, _ = self.lstm1(x)  # lstm_out: (B, T, hidden_size * 2)
+        lstm_out = self.linear1(x)  # (B, T, hidden_size * 2)
         control_param = self.embedding(control_param)  # (B, hidden_size * 2)
         combined = lstm_out + control_param.unsqueeze(1)  # broadcast control_param across time steps
         

@@ -4,7 +4,16 @@ from pathlib import Path
 import pytorch_lightning as pl
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import MaxAbsScaler
 
+def load_scaler_params(scaler_params_file):
+    scaler_df = pd.read_csv(scaler_params_file)
+    feature = scaler_df['feature'].values
+    scale = scaler_df['scale'].values
+    scaler = MaxAbsScaler()
+    scaler.scale_ = scale
+    scaler.feature_names_in_ = feature
+    return scaler
 
 from torch.nn.utils.rnn import pad_sequence
 def collate_fn(batch):
@@ -23,14 +32,15 @@ def collate_fn(batch):
 
 
 class TorqueForceDataset(Dataset):
-    def __init__(self, metadata_df, global_mean_std_file, window_size=500, step_size=125):
+    def __init__(self, metadata_df, scaler_file, window_size=500, step_size=125):
         """
         Args:
             metadata_df: DataFrame with metadata containing file paths and parameters
-            global_mean_std_file: Path to global_mean_std.csv
+            scaler_file: Path to scaler_params.csv
         """
         self.metadata_df = metadata_df.reset_index(drop=True)
-        self.global_mean_std = pd.read_csv(global_mean_std_file).set_index('column')
+        # self.global_mean_std = pd.read_csv(global_mean_std_file).set_index('column')
+        self.scaler = load_scaler_params(scaler_file)
         self.window_size = window_size
         self.step_size = step_size
 
@@ -64,13 +74,13 @@ class TorqueForceDataset(Dataset):
         df = pd.concat([torque_data[['Torque', 'Power']], force_data[['Fy', 'Fz', 'Fx']]], axis=1)
         
         # drop rows with zero values
-        df = df[(df['Torque'] != 0) & (df['Fx'] != 0) & (df['Fy'] != 0) & (df['Fz'] != 0)]
+        df = df[(df['Torque'] != 0)]
         
-        # normalize the data using the global mean and std
-        for column in ['Torque', 'Power', 'Fx', 'Fy', 'Fz']:
-            df[column] = (df[column] - self.global_mean_std.loc[column, 'global_mean']) / self.global_mean_std.loc[column, 'global_std']
-        
-        rolling_mean = df[['Torque', 'Power', 'Fx', 'Fy', 'Fz']].rolling(window=self.window_size, min_periods=self.window_size, step=int(self.step_size)).mean()
+        # normalize the data using the scaler
+        df_scaled = self.scaler.transform(df)
+        df_scaled = pd.DataFrame(df_scaled, columns=['Torque', 'Power', 'Fy', 'Fz', 'Fx'])
+
+        rolling_mean = df_scaled[['Torque', 'Power', 'Fx', 'Fy', 'Fz']].rolling(window=self.window_size, min_periods=self.window_size, step=int(self.step_size)).mean()
         rolling_mean = rolling_mean.dropna().reset_index(drop=True)
 
         # Build vector from metadata: [Vc, ap, fn, D_or_L, HT_or_NHT, hardness]
@@ -110,7 +120,7 @@ class TorqueForceDataModule(pl.LightningDataModule):
         super().__init__()
         self.data_root_dir = Path(data_root_dir)
         self.metadata_file = self.data_root_dir / "metadata.csv"
-        self.global_mean_std_file = self.data_root_dir / "global_mean_std.csv"
+        self.global_mean_std_file = self.data_root_dir / "scaler_params.csv"
         
         self.batch_size = batch_size
         self.num_workers = num_workers
